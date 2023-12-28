@@ -100,69 +100,16 @@ func main() {
 
 		trueNasCtx := context.WithValue(ctx, "ctxName", "trueNas")
 		go func(ctx context.Context) {
+			logger.Info("Starting timer for interval", "interval", interval)
 			queryTimer := time.NewTimer(interval)
 			for {
 				select {
 				case <-ctx.Done():
-					logger.Info("TrueNAS routine cancelled", "cause", context.Cause(ctx))
+					logger.Info("TrueNAS query routine cancelled", "cause", context.Cause(ctx))
 					return
 				case <-queryTimer.C:
-					start := time.Now()
-					pools, err := trueNasClient.GetPools()
-					end := time.Since(start)
-					var result *gatus.Result
-					if err != nil {
-						logger.Error("failed to query TrueNAS pools", "err", err)
-						httpStatus := 0
-						var trueNasErr *truenas.TrueNasError
-						if errors.As(err, &trueNasErr) {
-							httpStatus = trueNasErr.StatusCode
-						}
-						result = &gatus.Result{
-							HTTPStatus: httpStatus,
-							Hostname:   trueNasHostUrl.Host,
-							Duration:   end,
-							Errors:     []string{err.Error()},
-							Success:    false,
-							Timestamp:  time.Now(),
-							ConditionResults: []*gatus.ConditionResult{
-								{
-									Success:   false,
-									Condition: "Connected == false",
-								},
-							},
-						}
-					} else {
-						result = &gatus.Result{
-							HTTPStatus: 0,
-							Hostname:   trueNasHostUrl.Host,
-							Duration:   end,
-						}
-						overallFailure := false
-						var conditions []*gatus.ConditionResult
-						for _, pool := range pools {
-							if !truenas.IsPoolHealthy(pool) {
-								conditions = append(conditions, &gatus.ConditionResult{
-									Condition: fmt.Sprintf("%s == Healthy", pool.Name),
-									Success:   false,
-								})
-								overallFailure = true
-							} else {
-								conditions = append(conditions, &gatus.ConditionResult{
-									Condition: fmt.Sprintf("%s == Healthy", pool.Name),
-									Success:   true,
-								})
-							}
-						}
-						result.Success = !overallFailure
-						result.ConditionResults = conditions
-						result.Duration = end
-						result.Timestamp = time.Now()
-					}
-					logger.Info("Saving result from TrueNAS pools", "success", result.Success)
-					if err := st.SaveResult(result); err != nil {
-						logger.Error("failed to store result", "err", err)
-					}
+					logger.Info("Querying TrueNAS Pool status")
+					queryAndSave(logger, trueNasClient, st, trueNasHostUrl)
 				}
 			}
 		}(trueNasCtx)
@@ -188,13 +135,70 @@ func main() {
 				logger.Error("failed to marshal results in http response", "err", err)
 			}
 		})
-		go func() {
-			if err := http.ListenAndServe(":8989", mux); err != nil && err != http.ErrServerClosed {
-				logger.Error("failure on http server", "err", err)
-			}
-		}()
+		if err := http.ListenAndServe(":8989", mux); err != nil && err != http.ErrServerClosed {
+			logger.Error("failure on http server", "err", err)
+		}
 	}()
 
 	<-sigs
 	logger.Info("Exiting application")
+}
+
+func queryAndSave(logger *slog.Logger, trueNasClient *truenas.Client, st store, trueNasHostUrl *url.URL) {
+	start := time.Now()
+	pools, err := trueNasClient.GetPools()
+	end := time.Since(start)
+	var result *gatus.Result
+	if err != nil {
+		logger.Error("failed to query TrueNAS pools", "err", err)
+		httpStatus := 0
+		var trueNasErr *truenas.TrueNasError
+		if errors.As(err, &trueNasErr) {
+			httpStatus = trueNasErr.StatusCode
+		}
+		result = &gatus.Result{
+			HTTPStatus: httpStatus,
+			Hostname:   trueNasHostUrl.Host,
+			Duration:   end,
+			Errors:     []string{err.Error()},
+			Success:    false,
+			Timestamp:  time.Now(),
+			ConditionResults: []*gatus.ConditionResult{
+				{
+					Success:   false,
+					Condition: "Connected == false",
+				},
+			},
+		}
+	} else {
+		result = &gatus.Result{
+			HTTPStatus: 0,
+			Hostname:   trueNasHostUrl.Host,
+			Duration:   end,
+		}
+		overallFailure := false
+		var conditions []*gatus.ConditionResult
+		for _, pool := range pools {
+			if !truenas.IsPoolHealthy(pool) {
+				conditions = append(conditions, &gatus.ConditionResult{
+					Condition: fmt.Sprintf("%s == Healthy", pool.Name),
+					Success:   false,
+				})
+				overallFailure = true
+			} else {
+				conditions = append(conditions, &gatus.ConditionResult{
+					Condition: fmt.Sprintf("%s == Healthy", pool.Name),
+					Success:   true,
+				})
+			}
+		}
+		result.Success = !overallFailure
+		result.ConditionResults = conditions
+		result.Duration = end
+		result.Timestamp = time.Now()
+	}
+	logger.Info("Saving result from TrueNAS pools", "success", result.Success)
+	if err := st.SaveResult(result); err != nil {
+		logger.Error("failed to store result", "err", err)
+	}
 }
