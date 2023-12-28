@@ -101,7 +101,7 @@ func main() {
 		trueNasCtx := context.WithValue(ctx, "ctxName", "trueNas")
 		go func(ctx context.Context) {
 			logger.Info("Starting timer for interval", "interval", interval)
-			queryTimer := time.NewTimer(interval)
+			queryTimer := time.NewTicker(interval)
 			for {
 				select {
 				case <-ctx.Done():
