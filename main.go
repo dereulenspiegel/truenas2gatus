@@ -171,7 +171,16 @@ func main() {
 				http.Error(w, "data store failure", http.StatusInternalServerError)
 				return
 			}
-			if err := json.NewEncoder(w).Encode(results); err != nil {
+
+			endpointStatus := []*gatus.EndpointStatus{
+				{
+					Name:    "TrueNAS",
+					Group:   "Storage",
+					Key:     "storage_truenas",
+					Results: results,
+				},
+			}
+			if err := json.NewEncoder(w).Encode(endpointStatus); err != nil {
 				logger.Error("failed to marshal results in http response", "err", err)
 			}
 		})
