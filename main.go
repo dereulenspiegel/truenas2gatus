@@ -39,7 +39,10 @@ var (
 func main() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
 	logger := slog.Default()
+
+	logger.Info("Starting truenas2gatus")
 	ctx, backgroundCancel := context.WithCancel(context.Background())
 	defer backgroundCancel()
 	go func() {
@@ -101,7 +104,7 @@ func main() {
 			for {
 				select {
 				case <-ctx.Done():
-					logger.Info("TrueNas routine cancelled", "cause", context.Cause(ctx))
+					logger.Info("TrueNAS routine cancelled", "cause", context.Cause(ctx))
 					return
 				case <-queryTimer.C:
 					start := time.Now()
@@ -109,6 +112,7 @@ func main() {
 					end := time.Since(start)
 					var result *gatus.Result
 					if err != nil {
+						logger.Error("failed to query TrueNAS pools", "err", err)
 						httpStatus := 0
 						var trueNasErr *truenas.TrueNasError
 						if errors.As(err, &trueNasErr) {
@@ -155,7 +159,7 @@ func main() {
 						result.Duration = end
 						result.Timestamp = time.Now()
 					}
-
+					logger.Info("Saving result from TrueNAS pools", "success", result.Success)
 					if err := st.SaveResult(result); err != nil {
 						logger.Error("failed to store result", "err", err)
 					}
@@ -188,7 +192,6 @@ func main() {
 			if err := http.ListenAndServe(":8989", mux); err != nil && err != http.ErrServerClosed {
 				logger.Error("failure on http server", "err", err)
 			}
-			backgroundCancel()
 		}()
 	}()
 
