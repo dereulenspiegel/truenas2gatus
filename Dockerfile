@@ -1,3 +1,3 @@
 FROM scratch
-ENTRYPOINT ["/truenas2gatos"]
-COPY truenas2gatos /
+ENTRYPOINT ["/truenas2gatus"]
+COPY truenas2gatus /
